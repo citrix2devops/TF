@@ -1,0 +1,352 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: This Cloud Formation Template is used to create a RDS-MySQL Aurora Cluster and instances
+Metadata:
+  Version: 1.0
+  Date: '2019-03-20'
+
+Parameters:
+  AppName:
+    Type: String
+    Description: Application Short Name
+  Environment:
+    Type: String
+    Description: Database Environment
+  RegulatoryControls:
+    Type: String
+    Default: 'None'
+  ApplicationCI:
+    Type: String
+    MinLength: 3
+    Description: ApplicationCI
+  ApplicationSLA:
+    Type: String
+    Description: Application SLA Tier Level  
+    Default: Tier 1
+  ApplicationContactDL:
+    Type: String
+    Description: Used to identify technology area VPC to deploy and for summarized billing at MD level
+    Default: CPE-IT-TravelOps-Platform-DevOps@united.com
+  Family:
+    Type: String
+    Description: Database Family
+  Engine:
+    Type: String
+    Description: Database Engine
+  EngineVersion:
+    Type: String
+    Description: Engine Version
+  Serverless:
+    Type: String
+    Description: create a serveless database or provisioned database
+    AllowedValues: 
+        - Y
+        - N
+    Default: N
+  InstanceClass:
+    Type: String
+    Description: database instance class default value - db.r5.large for provisioned instance - db.serverless for severless
+  MinCapacity:
+    Type: String
+    Description: Minimum Capacity for severless
+    Default: '1'
+  MaxCapacity:
+    Type: String
+    Description: Maximum Capacity for severless
+    Default: '2'  
+  VpcId:
+    Type: String
+    Description: VPC ID
+  SubnetsIds:
+    Type: CommaDelimitedList  
+    Description: One or more subnet IDs to be assigned to the subnet group.     
+  DatabaseSecrets:
+    Type: String
+    Description: Name of the secret
+    Default: 'cwo-AuroraDB-Cluster-Secrets'
+  MasterUsername:
+    Type: String
+    Description: Master username for Aurora DB Cluster
+    Default: 'cwordsdbadmin'
+  MasterUserPassword:
+    Type: String
+    Description: Master user password for Aurora DB Cluster
+    NoEcho: true
+    Default: 'wefly787'
+  MQSecurityGroupId:
+    Type: String
+    Description: The ID of the security group
+    
+Conditions:
+  RDBMSTypeMySQLCheck: !Equals [!Ref Engine,"aurora-mysql"]
+  RDBMSTypePostgreSQLCheck: !Equals [!Ref Engine, "aurora-postgresql"]
+  IsServerless: !Equals [!Ref Serverless, "Y"]
+  
+Resources: 
+  RDSAuroraDBsecrets:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Database secrets.
+      Name: !Ref DatabaseSecrets
+      SecretString: !Join ['', ['{"username":"', !Ref MasterUsername, '","password":"', !Ref MasterUserPassword, '"}']]
+      Tags:
+        - 
+          Key: Application
+          Value: !Ref ApplicationCI  
+          
+  RDSAuroraDBsubnetgroup:
+    Type: "AWS::RDS::DBSubnetGroup"
+    Properties:
+      DBSubnetGroupDescription: Database subnet group for Aurora DB Cluster.
+      DBSubnetGroupName: !Join ['',[!Ref AppName,'rdsaurora',!Ref Environment,'dbsubnetgroup']]
+      SubnetIds: !Ref SubnetsIds
+      Tags:
+        - 
+          Key: ApplicationCI
+          Value: !Ref ApplicationCI
+        - 
+          Key: SLALevel
+          Value: !Ref ApplicationSLA
+        - 
+          Key: RiskDataClass
+          Value: !Join ['',['internal']]
+        - 
+          Key: ApplicationContactDL
+          Value: !Ref ApplicationContactDL
+        - 
+          Key: InternalExternal
+          Value: !Join ['',['Internal/Public']]
+        - 
+          Key: RegulatoryControls
+          Value: !Ref RegulatoryControls
+
+  RDSAuroraDBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable connection to DB on 3306 from Application subnets and NDC
+      VpcId:
+        !Ref VpcId
+      SecurityGroupIngress:
+        - CidrIp: 10.233.72.0/21
+          IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          Description: Inbound VDI Access 
+        - CidrIp: 10.233.64.0/19  
+          IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          Description: Inbound VDI Access 
+        - CidrIp: 10.233.112.0/21  
+          IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          Description: Inbound VDI Access
+        - SourceSecurityGroupId: !Ref MQSecurityGroupId
+          IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          Description: Access from MQ
+      Tags:
+      - Key: 'ApplicationCI'
+        Value: !Ref ApplicationCI
+        
+  RDSAuroraDBClusterParameterGroup:
+    Type: "AWS::RDS::DBClusterParameterGroup"
+    Properties: 
+      DBClusterParameterGroupName: !Join ['',[!Ref AppName,'rdsaurora',!Ref Environment,'clusterparametergroup']]
+      Description: This Parameter Group is assigned for DB Cluster.
+      Family: !Ref Family
+      Parameters: 
+        time_zone: US/Eastern
+        slow_query_log : 1
+        server_audit_logging : 1
+        server_audit_events : CONNECT,QUERY_DCL,QUERY_DDL
+        general_log : 1
+        require_secure_transport : "ON"
+        event_scheduler : "ON"
+      Tags:
+        - 
+          Key: Name
+          Value: !Join ['',[!Ref AppName,'rdsaurora',!Ref Environment,'clusterparametergroup']]
+        - 
+          Key: ApplicationCI
+          Value: !Ref ApplicationCI
+        - 
+          Key: SLALevel
+          Value: !Ref ApplicationSLA
+        - 
+          Key: RiskDataClass
+          Value: !Join ['',['internal']]
+        - 
+          Key: ApplicationContactDL
+          Value: !Ref ApplicationContactDL
+        - 
+          Key: InternalExternal
+          Value: !Join ['',['Internal/Public']]
+        - 
+          Key: RegulatoryControls
+          Value: !Ref RegulatoryControls
+
+  RDSAuroraDBInstParamaterGroup:
+    Type: "AWS::RDS::DBParameterGroup"
+    Properties: 
+      DBParameterGroupName: !Join ['',[!Ref AppName,'rdsaurora',!Ref Environment,'dbparametergroup']] 
+      Description: This Parameter Group is assigned for DB Instance.
+      Family: !Ref Family
+      Parameters: 
+        slow_query_log : 1
+        general_log : 1
+      Tags:
+        - 
+          Key: Name
+          Value: !Join ['',[!Ref AppName,'rdsaurora',!Ref Environment,'dbparametergroup']]
+        - 
+          Key: ApplicationCI
+          Value: !Ref ApplicationCI
+        - 
+          Key: SLALevel
+          Value: !Ref ApplicationSLA
+        - 
+          Key: RiskDataClass
+          Value: !Join ['',['internal']]
+        - 
+          Key: ApplicationContactDL
+          Value: !Ref ApplicationContactDL
+        - 
+          Key: InternalExternal
+          Value: !Join ['',['Internal/Public']]
+        - 
+          Key: RegulatoryControls
+          Value: !Ref RegulatoryControls
+
+  RDSAuroraDBCluster:
+    DependsOn: 
+        - RDSAuroraDBsecrets
+    Type: "AWS::RDS::DBCluster"
+    Properties:
+      Engine: !Ref Engine
+      EngineVersion: !Ref EngineVersion
+      DBClusterIdentifier: !Join ['',[!Ref AppName,'-rdsaurora-cluster-',!Ref 'AWS::Region','-',!Ref Environment]]
+      DBClusterParameterGroupName: !Ref RDSAuroraDBClusterParameterGroup 
+      MasterUsername: !Join ['', ['{{resolve:secretsmanager:', !Ref DatabaseSecrets, ':SecretString:username}}' ]]
+      MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref DatabaseSecrets, ':SecretString:password}}' ]]
+      DatabaseName: !Join ['',[!Ref ApplicationCI,'rdsauroradbcluster']]
+      DBSubnetGroupName: !Ref RDSAuroraDBsubnetgroup
+      Port: 
+       !If [RDBMSTypeMySQLCheck,3306,5432]
+      PreferredBackupWindow: !Join ['',['3:30-4:00']]
+      PreferredMaintenanceWindow: !Join ['',['Sun:4:30-Sun:05:00']]
+      StorageEncrypted: true
+      BackupRetentionPeriod: 15
+      VpcSecurityGroupIds: 
+        - !ImportValue BaselineSecurityGroupTGW
+        - !Ref RDSAuroraDBSecurityGroup
+      DeletionProtection: true
+      ServerlessV2ScalingConfiguration: !If 
+       - IsServerless
+       - 
+         MinCapacity: !Ref MinCapacity
+         MaxCapacity: !Ref MaxCapacity
+       - 
+         !Ref "AWS::NoValue" 
+      Tags: 
+        - 
+          Key: ApplicationCI
+          Value: !Ref ApplicationCI
+        - 
+          Key: SLALevel
+          Value: !Ref ApplicationSLA
+        - 
+          Key: RiskDataClass
+          Value: !Join ['',['internal']]
+        - 
+          Key: ApplicationContactDL
+          Value: !Ref ApplicationContactDL
+        - 
+          Key: InternalExternal
+          Value: !Join ['',['Internal/Public']]
+        - 
+          Key: Name
+          Value: !Join ['',[!Ref ApplicationCI,'rdsauroradbcluster']]
+        - 
+          Key: RegulatoryControls
+          Value: !Ref RegulatoryControls
+  
+  RDSAuroraDBMasterInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBSubnetGroupName: !Ref RDSAuroraDBsubnetgroup
+      DBParameterGroupName: !Ref RDSAuroraDBInstParamaterGroup
+      Engine: !Ref Engine
+      CopyTagsToSnapshot: true
+      DBInstanceIdentifier: !Join ['',[!Ref AppName,'-rdsaurora-master-inst-',!Ref 'AWS::Region','-',!Ref Environment]]
+      DBClusterIdentifier: !Ref RDSAuroraDBCluster
+      StorageEncrypted: true
+      PubliclyAccessible: no
+      DBInstanceClass: !Ref InstanceClass
+      EnablePerformanceInsights: true
+      Tags: 
+        - 
+          Key: ApplicationCI
+          Value: !Ref ApplicationCI
+        - 
+          Key: SLALevel
+          Value: !Ref ApplicationSLA
+        - 
+          Key: RiskDataClass
+          Value: !Join ['',['internal']]
+        - 
+          Key: ApplicationContactDL
+          Value: !Ref ApplicationContactDL
+        - 
+          Key: Name
+          Value: !Join ['',[!Ref AppName,'-rdsaurora-master-inst-',!Ref 'AWS::Region','-',!Ref Environment]]
+        -
+          Key: MaintenanceWindow
+          Value: !Join ['',['Sun:4:30-Sun:05:00']]
+        -
+          Key: InternalExternal
+          Value: !Join ['',['Internal/Public']]
+        - 
+          Key: RegulatoryControls
+          Value: !Ref RegulatoryControls
+
+  RDSAuroraDBReplicaInstance:
+    DependsOn: RDSAuroraDBMasterInstance
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBSubnetGroupName: !Ref RDSAuroraDBsubnetgroup
+      DBParameterGroupName: !Ref RDSAuroraDBInstParamaterGroup
+      Engine: !Ref Engine
+      CopyTagsToSnapshot: true
+      DBInstanceIdentifier: !Join ['',[!Ref AppName,'-rdsaurora-replica-inst-',!Ref 'AWS::Region','-',!Ref Environment]]
+      DBClusterIdentifier: !Ref RDSAuroraDBCluster
+      StorageEncrypted: true
+      PubliclyAccessible: no
+      DBInstanceClass: !Ref InstanceClass
+      EnablePerformanceInsights: true
+      Tags:
+        -
+           Key: ApplicationCI
+           Value: !Ref ApplicationCI
+        -
+           Key: SLALevel
+           Value: !Ref ApplicationSLA
+        -
+           Key: RiskDataClass
+           Value: !Join ['',['internal']]
+        -
+           Key: ApplicationContactDL
+           Value: !Ref ApplicationContactDL
+        -
+           Key: MaintenanceWindow
+           Value: !Join ['',['Sun:06:00-Sun:06:30']]
+        -
+           Key: InternalExternal
+           Value: !Join ['',['Internal/Public']]
+        - 
+          Key: Name
+          Value: !Join ['',[!Ref AppName,'-rdsaurora-replica-inst-',!Ref 'AWS::Region','-',!Ref Environment]]
+        - 
+          Key: RegulatoryControls
+          Value: !Ref RegulatoryControls
